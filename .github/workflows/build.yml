@@ -3,6 +3,34 @@ name: Build FriendlyWrt
 on:
   watch:
     types: started
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "FriendlyWrt 版本"
+        required: true
+        type: choice
+        options:
+          - "25.12"
+          - "24.10"
+        default: "25.12"
+      set:
+        description: "是否预装 Docker"
+        required: true
+        type: choice
+        options:
+          - "non-docker"
+          - "docker"
+        default: "non-docker"
+      openclash:
+        description: "预装 OpenClash"
+        required: true
+        type: boolean
+        default: true
+      rtp2httpd:
+        description: "预装 rtp2httpd"
+        required: true
+        type: boolean
+        default: true
 jobs:
   prepare_release:
     runs-on: ubuntu-22.04
@@ -11,7 +39,11 @@ jobs:
     - name: Get release tag
       id: release_tag
       run: |
-        release_tag="FriendlyWrt-$(date +%Y-%m-%d)"
+        if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          release_tag="FriendlyWrt-R4SE-$(date +%Y-%m-%d)-${GITHUB_RUN_NUMBER}"
+        else
+          release_tag="FriendlyWrt-$(date +%Y-%m-%d)"
+        fi
         echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
 
     - name: Create empty release
@@ -33,8 +65,8 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
     strategy:
       matrix:
-        VERSION: ['25.12', '24.10']
-        SET: [docker, non-docker]
+        VERSION: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.version)) || fromJSON('["25.12","24.10"]') }}
+        SET: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.set)) || fromJSON('["docker","non-docker"]') }}
 
     steps:
     - name: Checkout
@@ -76,6 +108,28 @@ jobs:
         repo sync -c scripts/sd-fuse  --no-clone-bundle
         repo sync -c toolchain  --no-clone-bundle
 
+    - name: Integrate selected packages
+      if: github.event_name == 'workflow_dispatch'
+      env:
+        INCLUDE_OPENCLASH: ${{ inputs.openclash }}
+        INCLUDE_RTP2HTTPD: ${{ inputs.rtp2httpd }}
+      run: |
+        set -euxo pipefail
+        cd project/friendlywrt
+
+        if [ "$INCLUDE_OPENCLASH" = "true" ]; then
+          git clone --depth=1 https://github.com/vernesong/OpenClash.git /tmp/OpenClash
+          mkdir -p package/luci-app-openclash
+          cp -a /tmp/OpenClash/luci-app-openclash package/luci-app-openclash/
+        fi
+
+        if [ "$INCLUDE_RTP2HTTPD" = "true" ]; then
+          grep -q '^src-git rtp2httpd ' feeds.conf.default || \
+            echo 'src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' >> feeds.conf.default
+          ./scripts/feeds update rtp2httpd
+          ./scripts/feeds install -p rtp2httpd rtp2httpd luci-app-rtp2httpd
+        fi
+
     - name: Apply customizations
       run: |
         cd project
@@ -93,6 +147,29 @@ jobs:
         TARGET_FRIENDLYWRT_CONFIG=${CONFIG}
         EOL
         DEBUG_DOT_CONFIG=1 ./build.sh friendlywrt
+
+        # Select optional packages for the manually requested R4SE build.
+        if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "${{ inputs.openclash }}" = "true" ]; then
+            echo 'CONFIG_PACKAGE_luci-app-openclash=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_dnsmasq-full=y' >> friendlywrt/.config
+            echo '# CONFIG_PACKAGE_dnsmasq is not set' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_bash=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_curl=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_ca-bundle=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_ruby=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_ruby-yaml=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_ip-full=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_unzip=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_luci-compat=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_kmod-nft-tproxy=y' >> friendlywrt/.config
+          fi
+          if [ "${{ inputs.rtp2httpd }}" = "true" ]; then
+            echo 'CONFIG_PACKAGE_rtp2httpd=y' >> friendlywrt/.config
+            echo 'CONFIG_PACKAGE_luci-app-rtp2httpd=y' >> friendlywrt/.config
+          fi
+          (cd friendlywrt && make defconfig)
+        fi
 
     - name: Download package
       run: |
@@ -187,9 +264,9 @@ jobs:
 
     strategy:
       matrix:
-        VERSION: ['25.12', '24.10']
-        CPU: [rk3328, rk3528, rk3399, rk3566, rk3568, rk3576, rk3588]
-        SET: [docker, non-docker]
+        VERSION: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.version)) || fromJSON('["25.12","24.10"]') }}
+        CPU: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["rk3399"]') || fromJSON('["rk3328","rk3528","rk3399","rk3566","rk3568","rk3576","rk3588"]') }}
+        SET: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.set)) || fromJSON('["docker","non-docker"]') }}
     steps:
     - name: Checkout
       uses: actions/checkout@v4
