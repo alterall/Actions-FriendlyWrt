@@ -71,8 +71,8 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
     strategy:
       matrix:
-        VERSION: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.version)) || fromJSON('["25.12","24.10"]') }}
-        SET: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.set)) || fromJSON('["docker","non-docker"]') }}
+        VERSION: ['25.12']
+        SET: ['non-docker']
 
     steps:
     - name: Checkout
@@ -283,9 +283,9 @@ jobs:
 
     strategy:
       matrix:
-        VERSION: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.version)) || fromJSON('["25.12","24.10"]') }}
-        CPU: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["rk3399"]') || fromJSON('["rk3328","rk3528","rk3399","rk3566","rk3568","rk3576","rk3588"]') }}
-        SET: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.set)) || fromJSON('["docker","non-docker"]') }}
+        VERSION: ['25.12']
+        CPU: ['rk3399']
+        SET: ['non-docker']
     steps:
     - name: Checkout
       uses: actions/checkout@v4
